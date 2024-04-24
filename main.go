@@ -1,9 +1,12 @@
 package main
 
 import (
+	"errors"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/joeprabawa/basic-go-rest/database"
 	model "github.com/joeprabawa/basic-go-rest/models"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -22,9 +25,7 @@ func main() {
 		r.Get("/", func(c *fiber.Ctx) error {
 			destinations := []model.Destination{}
 			all := database.Db.Find(&destinations)
-			if all.RowsAffected == 0 {
-				return c.Status(404).JSON("No destination found")
-			}
+
 			if all.Error != nil {
 				return c.Status(500).JSON("Internal Server Error", all.Error.Error())
 			}
@@ -33,15 +34,17 @@ func main() {
 		})
 		r.Get("/:id", func(c *fiber.Ctx) error {
 			params := c.Params("id")
-			destinaton := []model.Destination{}
-			find := database.Db.First(&destinaton, "id = ?", params)
-			if find.RowsAffected == 0 {
-				return c.Status(404).JSON("No destination found")
+			destination := []model.Destination{}
+			find := database.Db.First(&destination, "id = ?", params)
+
+			if errors.Is(find.Error, gorm.ErrRecordNotFound) {
+				return c.Status(404).JSON(fiber.Map{"message": "Record not found"})
 			}
+
 			if find.Error != nil {
 				return c.Status(500).JSON("Internal Server Error", find.Error.Error())
 			}
-			return c.Status(200).JSON(destinaton)
+			return c.Status(200).JSON(destination)
 		})
 		r.Post("/", func(c *fiber.Ctx) error {
 			newDestination := new(model.Destination)
@@ -61,11 +64,19 @@ func main() {
 		r.Put("/:id", func(c *fiber.Ctx) error {
 			params := c.Params("id")
 			destination := new(model.Destination)
+			first := database.Db.First(&destination, "id = ?", params)
 			parse := c.BodyParser(destination)
+
+			if errors.Is(first.Error, gorm.ErrRecordNotFound) {
+				return c.Status(404).JSON(fiber.Map{"message": "Record not found"})
+			}
+
 			if parse != nil {
 				return c.Status(400).JSON(parse.Error())
 			}
-			put := database.Db.Model(&model.Destination{}).Where("id = ?", params).Updates(destination)
+
+			put := database.Db.Model(&destination).Where("id = ?", params).Updates(&destination)
+
 			if put.Error != nil {
 				return c.Status(500).JSON("Internal Server Error", put.Error.Error())
 			}
@@ -74,11 +85,22 @@ func main() {
 		r.Delete("/:id", func(c *fiber.Ctx) error {
 			params := c.Params("id")
 			destination := new(model.Destination)
+			find := database.Db.First(&destination, "id = ?", params)
+
+			if params == "" {
+				return c.Status(400).JSON(fiber.Map{"message": "ID is required"})
+			}
+
+			if errors.Is(find.Error, gorm.ErrRecordNotFound) {
+				return c.Status(404).JSON(fiber.Map{"message": "Record not found"})
+			}
+
 			delete := database.Db.Where("id = ?", params).Delete(&destination)
+
 			if delete.Error != nil {
 				return c.Status(500).JSON("Internal Server Error", delete.Error.Error())
 			}
-			return c.Status(200).JSON(destination)
+			return c.Status(200).JSON(fiber.Map{"id": params})
 
 		})
 
